@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from typing import Literal
 from . import T2IAdapterUNet2DConditionModel
+from einops import rearrange
 
 
 def conv_nd(dims, *args, **kwargs):
@@ -79,7 +80,7 @@ class ResnetBlock(nn.Module):
         self.block1 = nn.Conv2d(out_c, out_c, 3, 1, 1)
         self.act = nn.ReLU()
         self.block2 = nn.Conv2d(out_c, out_c, ksize, 1, ps)
-        if sk == False:
+        if self.in_conv is None:
             self.skep = nn.Conv2d(in_c, out_c, ksize, 1, ps)
         else:
             self.skep = None
@@ -145,7 +146,7 @@ class Adapter(nn.Module):
         self.body = nn.ModuleList(self.body)
         self.conv_in = nn.Conv2d(cin, channels[0], 3, 1, 1)
 
-    def forward(self, x):
+    def extract_patch(self, x):
         # unshuffle
         x = self.unshuffle(x)
         # extract features
@@ -158,6 +159,22 @@ class Adapter(nn.Module):
             features.append(x)
 
         return features
+
+    def forward(self, cube, pers, process_idxs=None):
+        b, n, c, _, _ = cube.shape 
+        cube = rearrange(cube, 'b n c h w -> (b n) c h w') 
+        cube_feats = self.extract_patch(cube) 
+        reshape_cube_feats = list() 
+        for cube_feat in cube_feats:
+            reshape_cube_feats.append(rearrange(cube_feat, '(b n) c h w -> b n c h w', b=b, n=n))
+
+        pers_feat = self.extract_patch(pers)
+        return reshape_cube_feats, pers_feat
+
+        
+        
+
+
 
     @classmethod
     def from_pretrained(
